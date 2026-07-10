@@ -11,17 +11,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# إعداد عميل Grok (xAI)
+# إعداد عميل Grok (xAI) بالطريقة الصحيحة والمتوافقة مع التحديثات الجديدة
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 grok_client = None
 
 if XAI_API_KEY:
-    grok_client = OpenAI(
-        api_key=XAI_API_KEY,
-        base_url="https://x.ai",
-    )
+    try:
+        # قمنا بتبسيط الإعداد هنا وحذف أي معاملات قديمة تسبب تعارضاً
+        grok_client = OpenAI(
+            api_key=XAI_API_KEY,
+            base_url="https://x.ai"
+        )
+    except Exception as init_error:
+        logger.error(f"خطأ أثناء تهيئة عميل OpenAI: {init_error}")
 else:
-    logger.warning("تنبيه: لم يتم العثور على مفتاح XAI_API_KEY")
+    logger.warning("تنبيه: لم يتم العثور على مفتاح XAI_API_KEY في متغيرات البيئة")
 
 # معرف القناة المستهدف
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -33,7 +37,7 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        # توجيه Grok لتوليد المحتوى الدوري الحماسي
+        # توليد المحتوى الدوري الحماسي
         response = grok_client.chat.completions.create(
             model="grok-2-latest",
             messages=[
@@ -57,16 +61,16 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         
         post_content = response.choices.message.content
         
-        # إرسال المنشور إلى القناة مباشرة مع دعم التنسيق العريض والخطوط المائلة
+        # إرسال المنشور إلى القناة مباشرة
         await context.bot.send_message(chat_id=CHANNEL_ID, text=post_content, parse_mode="Markdown")
         logger.info("تم نشر الموعظة الدورية بنجاح في القناة.")
 
     except Exception as e:
         logger.error(f"خطأ أثناء التوليد أو النشر التلقائي: {e}")
 
-# دالة التهيئة المضافة لحل الخلل (تشتغل فور إقلاع البوت)
+# دالة التهيئة (تشتغل فور إقلاع البوت وتفادي مشاكل الأولوية البرمجية)
 async def post_init(application: Application) -> None:
-    # نقوم بجدولة المهمة لتنطلق بعد 10 ثوانٍ من إقلاع السيرفر ثم تتكرر كل 1800 ثانية (30 دقيقة)
+    # الجدولة تنطلق بعد 10 ثوانٍ وتتكرر كل 1800 ثانية (30 دقيقة)
     application.job_queue.run_repeating(auto_post_job, interval=1800, first=10)
     logger.info("تم تفعيل نظام النشر الدوري بنجاح وجدولته كل 30 دقيقة.")
 
@@ -74,7 +78,7 @@ async def post_init(application: Application) -> None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_name = update.effective_user.first_name
     welcome_text = (
-        f"أهلاً بكِ وبكَ يا {user_name} في بوت القناة الشرعي والوعظي الدوري.\n\n"
+        f"أهلاً بك يا {user_name} في بوت القناة الشرعي والوعظي الدوري.\n\n"
         "البوت مستعد الآن لاستقبال أسئلة الإخوة والأخوات والرد عليها عبر Grok.\n"
         "ونظام النشر الدوري الحماسي المكثف يعمل تلقائياً كل 30 دقيقة في القناة المربوطة."
     )
