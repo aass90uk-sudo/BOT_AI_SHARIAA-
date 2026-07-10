@@ -1,137 +1,136 @@
 import os
 import logging
-import time
 import threading
-import urllib.request
-import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
 
-# إعدادات التسجيل لمراقبة الأخطاء
+# إعداد السجلات (Logs) لمتابعة أداء البوت على Railway
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# جلب المتغيرات السرية من Railway
+# جلب مفاتيح التشغيل السرية من بيئة النظام (Railway)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+CHANNEL_CHAT_ID = os.getenv("CHANNEL_CHAT_ID")
 
-# تهيئة عميل Groq الرسمي باستخدام المكتبة
-groq_client = None
-if GROQ_API_KEY:
-    groq_client = Groq(api_key=GROQ_API_KEY.strip())
-else:
-    logger.error("خطأ: لم يتم العثور على GROQ_API_KEY")
+# التحقق من وجود المتغيرات الأساسية
+if not TELEGRAM_TOKEN or not GROQ_API_KEY:
+    logger.error("خطأ: لم يتم ضبط المتغيرات البيئية TELEGRAM_TOKEN أو GROQ_API_KEY!")
+    exit(1)
 
-# دالة الاتصال الرسمية بـ Groq
-def ask_groq(system_prompt, user_prompt):
-    if not groq_client:
-        return "خطأ: لم يتم تهيئة عميل Groq بنجاح."
+# تهيئة عميل Groq
+groq_client = Groq(api_key=GROQ_API_KEY)
+FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
+
+# ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running inside Railway successfully!")
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"تم تشغيل سيرفر الفحص الوهمي على المنفذ: {port}")
+    server.serve_forever()
+# -----------------------------------------------------------------
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر البدء للبوت"""
+    await update.message.reply_text(
+        "مرحباً بكم في البوت الدعوي المتكامل.\n"
+        "المشروع يعمل كصدقة جارية للأخت «الأندلسية» غفر الله لها ولنا وللمسلمين."
+    )
+
+def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = False) -> str:
     try:
-        # الاستدعاء الرسمي المعتمد من منصة Groq لمنع خطأ 405
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": system_role},
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.6,
+            temperature=0.7,
+            max_tokens=800
         )
-        return completion.choices[0].message.content
+        reply_content = completion.choices.message.content
+        if not is_group_reply:
+            reply_content += FOOTER_TEXT
+        return reply_content
     except Exception as e:
-        logger.error(f"خطأ أثناء الاتصال بـ Groq: {e}")
-        return f"خطأ من سيرفر Groq: {str(e)}"
+        logger.error(f"خطأ أثناء توليد النص من Groq: {e}")
+        return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
 
-# خيط الجدولة الدوري المستقل (كل 30 دقيقة)
-def background_posting_thread(bot_token):
-    logger.info("بدء تشغيل خيط الخلفية للنشر الآلي...")
-    time.sleep(15)
+async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
+    if not CHANNEL_CHAT_ID:
+        logger.warning("تنبيه: لم يتم ضبط CHANNEL_CHAT_ID!")
+        return
+        
+    logger.info("بدء توليد ونشر الموعظة الدورية في القناة...")
+    system_role = "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية المستندة إلى الوحيين والوعي بواقع الأمة."
+    prompt = (
+        "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية. "
+        "ركز على عقيدة الولاء والبراء، ثبات الأمة، فضل الجهاد والرباط، "
+        "مراغمة الكفار في جزيرة العرب، والدعاء لأبطال وثغور المسلمين في كل بقاع الأرض."
+    )
+    content = generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
     
-    system_prompt = (
-        "أنت كاتب وموجه إسلامي بليغ. اكتب موعظة إيمانية حماسية مكثفة وقصيرة "
-        "(مناسبة لنشرها كمنشور تليجرام سريع ومؤثر). "
-        "يجب أن يركز المنشور بشكل قوي ومباشر على أحد المواضيع التالية بالتناوب: "
-        "1) ترسيخ عقيدة الولاء والبراء في نفوس الأمة. "
-        "2) بيان أهمية الجهاد وثبات الأمة وعزتها. "
-        "3) مراغمة الكفار وأعداء الدين في جزيرة العرب. "
-        "4) الدعاء المستمر بحرقة وتضرع لأبطال وثغور المجاهدين في كل بقاع الأرض لحفظهم ونصرحهم. "
-        "استخدم أسلوباً قوياً، جزلاً، بليغاً، مليئاً بالآيات والأحاديث المناسبة، "
-        "مع استخدام علامات الترقيم والتنسيق لإعطاء المنشور طابعاً حماسياً."
-    )
-    user_prompt = "اكتب المنشور الدوري الحماسي الآن بجودة وبلاغة عالية وبدون مقدمات."
+    try:
+        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
+        logger.info("تم نشر الموعظة الدورية بنجاح.")
+    except Exception as e:
+        logger.error(f"فشل إرسال الرسالة إلى القناة: {e}")
 
-    while True:
-        if CHANNEL_ID and bot_token:
-            logger.info("جاري طلب الموعظة التلقائية من سيرفر Groq...")
-            post_content = ask_groq(system_prompt, user_prompt)
-            
-            if post_content and not post_content.startswith("خطأ"):
-                telegram_url = f"https://telegram.org{bot_token}/sendMessage"
-                post_data = {
-                    "chat_id": CHANNEL_ID,
-                    "text": post_content,
-                    "parse_mode": "Markdown"
-                }
-                try:
-                    req = urllib.request.Request(
-                        telegram_url, 
-                        data=json.dumps(post_data).encode('utf-8'), 
-                        headers={"Content-Type": "application/json"}, 
-                        method='POST'
-                    )
-                    with urllib.request.urlopen(req) as resp:
-                        logger.info("تم بث الموعظة بنجاح داخل القناة.")
-                except Exception as send_error:
-                    logger.error(f"فشل إرسال النص إلى القناة: {send_error}")
-            else:
-                logger.error(f"تم تخطي النشر الدوري بسبب خطأ السيرفر: {post_content}")
-        else:
-            logger.error("خطأ: تأكد من كتابة معرف القناة ورمز التوكن بشكل سليم.")
-            
-        time.sleep(1800)
-
-# أمر البدء /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_name = update.effective_user.first_name
-    welcome_text = (
-        f"مرحباً بك يا {user_name} في بوت القناة الشرعي والوعظي الفقهي.\n\n"
-        "البوت جاهز تماماً الآن لتلقي واستقبال أسئلة الإخوة والأخوات والإجابة عليها عبر منصة Groq.\n"
-        "كما أن نظام بث المواعظ الدوري يعمل تلقائياً كل نصف ساعة داخل القناة."
-    )
-    await update.message.reply_text(welcome_text)
-
-# فحص الرسائل والرد الشرعي الآلي في الخاص
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_message = update.message.text
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    system_prompt = (
-        "أنت مستشار شرعي وبوت فقهي مخصص لخدمة الإخوة والأخوات الموحدين. "
-        "أجب على الأسئلة الدينية والفقهية بدقة بناءً على الكتاب والسنة بفهم سلف الأمة مع ذكر الأدلة. "
-        "يجب أن يكون أسلوبك في غاية الأدب واللطف والرفق واللين المستمر."
-    )
-    
-    groq_reply = ask_groq(system_prompt, user_message)
-    await update.message.reply_text(groq_reply, reply_to_message_id=update.message.message_id)
-
-def main() -> None:
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not TOKEN:
-        logger.error("خطأ حرج: لم يتم العثور على متغير البيئة TELEGRAM_BOT_TOKEN")
+async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message or not message.text:
         return
 
-    threading.Thread(target=background_posting_thread, args=(TOKEN,), daemon=True).start()
+    bot_username = context.bot.username
+    is_mentioned = f"@{bot_username}" in message.text
+    is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id
+    is_private = update.effective_chat.type == "private"
 
-    application = Application.builder().token(TOKEN).build()
+    if is_mentioned or is_reply_to_bot or is_private:
+        user_query = message.text.replace(f"@{bot_username}", "").strip()
+        if not user_query:
+            user_query = "مرحباً بك"
 
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        system_role = (
+            "أنت مجيب وموجه شرعي وفكري ذكي جداً، تخاطب الإخوة والأخوات الموحدين في مجموعة نقاش دعوية وثقافية. "
+            "أجوبتك مبنية على العقيدة الإسلامية الصحيحة والولاء والبراء ونصرة قضايا المسلمين."
+        )
+        ai_reply = generate_ai_content(prompt=user_query, system_role=system_role, is_group_reply=True)
+        
+        try:
+            await message.reply_text(text=ai_reply)
+        except Exception as e:
+            logger.error(f"فشل إرسال الرد: {e}")
+
+def main():
+    # تشغيل السيرفر الوهمي في مسار منفصل (Thread) حتى لا يعطل البوت
+    threading.Thread(target=start_health_server, daemon=True).start()
+
+    # تشغيل البوت
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
 
-    logger.info("تم إقلاع البوت وتثبيت الإعدادات بنجاح...")
-    application.run_polling()
+    job_queue = application.job_queue
+    if job_queue:
+        job_queue.run_repeating(auto_post_job, interval=1800, first=10)
+        logger.info("تم تفعيل مجدول المهام الدوري.")
+
+    logger.info("البوت يبدأ الاستماع الآن...")
+    application.run_polling(close_loop=False, allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
