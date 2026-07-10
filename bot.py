@@ -1,11 +1,10 @@
 import os
 import logging
-import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
 
-# إعدادات التسجيل لمراقبة الأخطاء
+# إعدادات التسجيل لمراقبة الأخطاء في السيرفر
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -24,17 +23,17 @@ if XAI_API_KEY:
 else:
     logger.warning("تنبيه: لم يتم العثور على مفتاح XAI_API_KEY")
 
-# معرف القناة (سيتم جلبه من متغيرات البيئة)
+# معرف القناة المستهدف
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 # وظيفة توليد الموعظة ونشرها تلقائياً
 async def auto_post_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     if not grok_client or not CHANNEL_ID:
-        logger.error("خطأ: مفتاح Grok أو معرف القناة غير مضبوط.")
+        logger.error("خطأ: مفتاح Grok أو معرف القناة غير مضبوط في متغيرات البيئة.")
         return
 
     try:
-        # توجيه Grok لتوليد المحتوى الدوري الحماسي بدقة
+        # توجيه Grok لتوليد المحتوى الدوري الحماسي
         response = grok_client.chat.completions.create(
             model="grok-2-latest",
             messages=[
@@ -58,24 +57,30 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         
         post_content = response.choices.message.content
         
-        # إرسال المنشور إلى القناة مباشرة
+        # إرسال المنشور إلى القناة مباشرة مع دعم التنسيق العريض والخطوط المائلة
         await context.bot.send_message(chat_id=CHANNEL_ID, text=post_content, parse_mode="Markdown")
         logger.info("تم نشر الموعظة الدورية بنجاح في القناة.")
 
     except Exception as e:
         logger.error(f"خطأ أثناء التوليد أو النشر التلقائي: {e}")
 
-# أمر البدء وتفعيل النشر التلقائي /start
+# دالة التهيئة المضافة لحل الخلل (تشتغل فور إقلاع البوت)
+async def post_init(application: Application) -> None:
+    # نقوم بجدولة المهمة لتنطلق بعد 10 ثوانٍ من إقلاع السيرفر ثم تتكرر كل 1800 ثانية (30 دقيقة)
+    application.job_queue.run_repeating(auto_post_job, interval=1800, first=10)
+    logger.info("تم تفعيل نظام النشر الدوري بنجاح وجدولته كل 30 دقيقة.")
+
+# أمر البدء /start في الخاص
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_name = update.effective_user.first_name
     welcome_text = (
-        f"أهلاً بك يا {user_name} في بوت القناة الشرعي والوعظي الدوري.\n\n"
+        f"أهلاً بكِ وبكَ يا {user_name} في بوت القناة الشرعي والوعظي الدوري.\n\n"
         "البوت مستعد الآن لاستقبال أسئلة الإخوة والأخوات والرد عليها عبر Grok.\n"
-        "كما تم تفعيل نظام النشر الدوري الحماسي المكثف تلقائياً كل 30 دقيقة في القناة المربوطة."
+        "ونظام النشر الدوري الحماسي المكثف يعمل تلقائياً كل 30 دقيقة في القناة المربوطة."
     )
     await update.message.reply_text(welcome_text)
 
-# معالجة الأسئلة المباشرة الواردة للبوت (كما كانت)
+# معالجة الأسئلة المباشرة الواردة للبوت
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_message = update.message.text
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -111,21 +116,15 @@ def main() -> None:
         logger.error("خطأ: لم يتم العثور على TELEGRAM_BOT_TOKEN")
         return
 
-    # بناء التطبيق
-    application = Application.builder().token(TOKEN).build()
-
-    # إعداد وتفعيل المجدول الدوري (JobQueue) كل 30 دقيقة (1800 ثانية)
-    job_queue = application.job_queue
-    # ينطلق المنشور الأول بعد 10 ثوانٍ من تشغيل السيرفر، ثم يتكرر كل 1800 ثانية
-    job_queue.run_repeating(auto_post_job, interval=1800, first=10)
+    # بناء التطبيق مع استدعاء دالة التهيئة المحدثة لحل المشكلة الأساسية
+    application = Application.builder().token(TOKEN).post_init(post_init).build()
 
     # تسجيل الأوامر والرسائل
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("تم تشغيل البوت ونظام النشر الدوري بنجاح...")
+    logger.info("تم تشغيل البوت بنجاح...")
     application.run_polling()
 
 if __name__ == '__main__':
     main()
-                
