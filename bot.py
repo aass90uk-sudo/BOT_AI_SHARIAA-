@@ -14,22 +14,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# جلب المتغيرات السرية من بيئة التشغيل
-XAI_API_KEY = os.getenv("XAI_API_KEY")
+# جلب المتغيرات السرية الجديدة من بيئة التشغيل في Railway
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
-def ask_grok(system_prompt, user_prompt):
-    if not XAI_API_KEY:
-        logger.error("خطأ: لم يتم ضبط مفتاح Grok")
+# دالة الاتصال المباشر بمنصة Groq الرسمية
+def ask_groq(system_prompt, user_prompt):
+    if not GROQ_API_KEY:
+        logger.error("خطأ: لم يتم ضبط مفتاح GROQ_API_KEY في متغيرات البيئة.")
         return None
     
-    url = "https://x.ai"
+    # الرابط الرسمي لمنصة Groq Cloud
+    url = "https://groq.com"
     headers = {
-        "Authorization": f"Bearer {XAI_API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
     data = {
-        "model": "grok-2-latest",
+        # استخدام أحد أقوى نماذج اللاما المتاحة على منصة Groq والممتازة في العربية
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -42,9 +45,10 @@ def ask_grok(system_prompt, user_prompt):
             res_data = json.loads(response.read().decode('utf-8'))
             return res_data['choices']['message']['content']
     except Exception as e:
-        logger.error(f"خطأ أثناء الاتصال بـ Grok API: {e}")
+        logger.error(f"خطأ أثناء الاتصال بـ Groq API: {e}")
         return None
 
+# دالة النشر الدوري تعمل في خلفية النظام كل 30 دقيقة
 def background_posting_thread(bot_token):
     logger.info("تم إطلاق خيط النشر الدوري المستقل بنجاح...")
     time.sleep(15)
@@ -64,8 +68,8 @@ def background_posting_thread(bot_token):
 
     while True:
         if CHANNEL_ID and bot_token:
-            logger.info("جاري توليد المنشور الدوري من Grok...")
-            post_content = ask_grok(system_prompt, user_prompt)
+            logger.info("جاري توليد المنشور الدوري من Groq...")
+            post_content = ask_groq(system_prompt, user_prompt)
             
             if post_content:
                 telegram_url = f"https://telegram.org{bot_token}/sendMessage"
@@ -86,21 +90,23 @@ def background_posting_thread(bot_token):
                 except Exception as send_error:
                     logger.error(f"فشل إرسال الرسالة للقناة: {send_error}")
             else:
-                logger.error("فشل توليد المحتوى من Grok.")
+                logger.error("فشل توليد المحتوى من Groq.")
         else:
             logger.error("خطأ: لم يتم ضبط الإعدادات بشكل صحيح في المتغيرات.")
             
         time.sleep(1800)
 
+# أمر البدء /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_name = update.effective_user.first_name
     welcome_text = (
         f"أهلاً بك يا {user_name} في بوت القناة الشرعي والوعظي الدوري.\n\n"
-        "البوت مستعد الآن لاستقبال أسئلة الإخوة والأخوات والرد عليها عبر Grok.\n"
+        "البوت مستعد الآن لاستقبال أسئلة الإخوة والأخوات والرد عليها عبر ذكاء Groq السريع.\n"
         "ونظام النشر الدوري يعمل تلقائياً كل 30 دقيقة في القناة المربوطة."
     )
     await update.message.reply_text(welcome_text)
 
+# معالجة الأسئلة المباشرة الواردة للبوت
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_message = update.message.text
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -111,10 +117,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "يجب أن يكون أسلوبك في غاية الأدب واللطف والرفق."
     )
     
-    grok_reply = ask_grok(system_prompt, user_message)
+    groq_reply = ask_groq(system_prompt, user_message)
     
-    if grok_reply:
-        await update.message.reply_text(grok_reply, reply_to_message_id=update.message.message_id)
+    if groq_reply:
+        await update.message.reply_text(groq_reply, reply_to_message_id=update.message.message_id)
     else:
         await update.message.reply_text("حصل خطأ أثناء معالجة السؤال، يرجى المحاولة لاحقاً.")
 
@@ -131,7 +137,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("تم تشغيل البوت بنجاح واستقرار عالي...")
+    logger.info("تم تشغيل بوت Groq بنجاح واستقرار عالي...")
     application.run_polling()
 
 if __name__ == '__main__':
