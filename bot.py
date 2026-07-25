@@ -1,6 +1,7 @@
 import os
 import logging
 import threading
+import random  # تم إضافة المكتبة لاختيار الإيموجي عشوائياً
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -93,10 +94,29 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not message or not message.text:
         return
 
+    chat_type = update.effective_chat.type
+
+    # 1. التفاعل بالإيموجي تلقائياً على أي رسالة تأتي في مجموعة النقاش (التعليقات)
+    if chat_type in ["group", "supergroup"]:
+        try:
+            my_emojis = ["❤️", "🥰", "😘"]
+            chosen_emoji = random.choice(my_emojis)
+            
+            await context.bot.set_message_reaction(
+                chat_id=update.effective_chat.id,
+                message_id=message.message_id,
+                reaction=[{"type": "emoji", "emoji": chosen_emoji}],
+                is_big=False
+            )
+            logger.info(f"تم وضع التفاعل {chosen_emoji} على رسالة المشترك بنجاح.")
+        except Exception as e:
+            logger.error(f"فشل وضع التفاعل: {e}")
+
+    # 2. جزء الرد التلقائي بالذكاء الاصطناعي (كما هو دون تعديل)
     bot_username = context.bot.username
     is_mentioned = f"@{bot_username}" in message.text
     is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id
-    is_private = update.effective_chat.type == "private"
+    is_private = chat_type == "private"
 
     if is_mentioned or is_reply_to_bot or is_private:
         user_query = message.text.replace(f"@{bot_username}", "").strip()
@@ -134,3 +154,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+        
