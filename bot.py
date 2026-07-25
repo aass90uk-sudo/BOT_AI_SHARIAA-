@@ -1,7 +1,7 @@
 import os
 import logging
 import threading
-import random  # تم إضافة المكتبة لاختيار الإيموجي عشوائياً
+import random  # مكتبة لاختيار الإيموجي عشوائياً
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -27,6 +27,9 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY:
 # تهيئة عميل Groq
 groq_client = Groq(api_key=GROQ_API_KEY)
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
+
+# قائمة التفاعلات المطلوبة
+REACTION_EMOJIS = ["😘", "🥰", "❤️", "🕊️", "🐳"]
 
 # ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -61,7 +64,7 @@ def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = Fa
             temperature=0.7,
             max_tokens=800
         )
-        reply_content = completion.choices.message.content
+        reply_content = completion.choices[0].message.content
         if not is_group_reply:
             reply_content += FOOTER_TEXT
         return reply_content
@@ -89,6 +92,26 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"فشل إرسال الرسالة إلى القناة: {e}")
 
+# ----------------- معالج التفاعل مع منشورات القناة -----------------
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دالة التفاعل التلقائي على أي منشور جديد ينزل في القناة"""
+    post = update.channel_post
+    if not post:
+        return
+
+    try:
+        chosen_emoji = random.choice(REACTION_EMOJIS)
+        await context.bot.set_message_reaction(
+            chat_id=post.chat.id,
+            message_id=post.message_id,
+            reaction=[{"type": "emoji", "emoji": chosen_emoji}],
+            is_big=False
+        )
+        logger.info(f"تم وضع التفاعل {chosen_emoji} على منشور القناة بنجاح.")
+    except Exception as e:
+        logger.error(f"فشل وضع التفاعل على منشور القناة: {e}")
+
+# ----------------- معالج رسائل المجموعات والردود -----------------
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or not message.text:
@@ -96,12 +119,10 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     chat_type = update.effective_chat.type
 
-    # 1. التفاعل بالإيموجي تلقائياً على أي رسالة تأتي في مجموعة النقاش (التعليقات)
+    # 1. التفاعل بالإيموجي تلقائياً على أي رسالة تأتي في مجموعة النقاش
     if chat_type in ["group", "supergroup"]:
         try:
-            my_emojis = ["❤️", "🥰", "😘"]
-            chosen_emoji = random.choice(my_emojis)
-            
+            chosen_emoji = random.choice(REACTION_EMOJIS)
             await context.bot.set_message_reaction(
                 chat_id=update.effective_chat.id,
                 message_id=message.message_id,
@@ -110,9 +131,9 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             logger.info(f"تم وضع التفاعل {chosen_emoji} على رسالة المشترك بنجاح.")
         except Exception as e:
-            logger.error(f"فشل وضع التفاعل: {e}")
+            logger.error(f"فشل وضع التفاعل في المجموعة: {e}")
 
-    # 2. جزء الرد التلقائي بالذكاء الاصطناعي (كما هو دون تعديل)
+    # 2. جزء الرد التلقائي بالذكاء الاصطناعي
     bot_username = context.bot.username
     is_mentioned = f"@{bot_username}" in message.text
     is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id
@@ -136,14 +157,22 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"فشل إرسال الرد: {e}")
 
 def main():
-    # تشغيل السيرفر الوهمي في مسار منفصل (Thread) حتى لا يعطل البوت
+    # تشغيل السيرفر الوهمي في مسار منفصل (Thread)
     threading.Thread(target=start_health_server, daemon=True).start()
 
     # تشغيل البوت
     application = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # المعالجات (Handlers)
     application.add_handler(CommandHandler("start", start))
+    
+    # إضافة معالج منشورات القناة (لتطبيق التفاعلات عليها)
+    application.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
+    
+    # معالج الرسائل العادية والمجموعات
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
 
+    # مجدول المهام المنشورات الدورية
     job_queue = application.job_queue
     if job_queue:
         job_queue.run_repeating(auto_post_job, interval=1800, first=10)
@@ -154,4 +183,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
+        
