@@ -14,9 +14,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # جلب مفاتيح التشغيل السرية من بيئة النظام (Railway)
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-CHANNEL_CHAT_ID = os.getenv("CHANNEL_CHAT_ID")
+CHANNEL_CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 
 # التحقق من وجود المتغيرات الأساسية
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
