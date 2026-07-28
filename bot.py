@@ -14,9 +14,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # جلب مفاتيح التشغيل السرية من بيئة النظام (Railway)
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-CHANNEL_CHAT_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+CHANNEL_CHAT_ID = os.getenv("CHANNEL_CHAT_ID")
 
 # التحقق من وجود المتغيرات الأساسية
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
@@ -60,7 +60,7 @@ def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = Fa
             temperature=0.7,
             max_tokens=800
         )
-        reply_content = completion.choices.message.content
+        reply_content = completion.choices[0].message.content
         if not is_group_reply:
             reply_content += FOOTER_TEXT
         return reply_content
