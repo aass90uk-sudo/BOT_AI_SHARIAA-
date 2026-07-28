@@ -4,7 +4,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from groq import AsyncGroq
+from groq import AsyncGroq, RateLimitError
 
 # إعداد السجلات (Logs) لمتابعة أداء البوت على Railway
 logging.basicConfig(
@@ -55,18 +55,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = False) -> str:
     try:
         completion = await groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_role},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=800
+            max_tokens=500
         )
         reply_content = completion.choices[0].message.content
         if not is_group_reply:
             reply_content += FOOTER_TEXT
         return reply_content
+    except RateLimitError as e:
+        logger.error(f"تجاوز حد الاستخدام اليومي في Groq: {e}")
+        return "عذراً، وصل البوت لحد الاستخدام اليومي. يرجى المحاولة غداً بإذن الله."
     except Exception as e:
         logger.error(f"خطأ أثناء توليد النص من Groq: {e}")
         return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
@@ -90,6 +93,9 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
         logger.info("تم نشر الموعظة الدورية بنجاح.")
     except Exception as e:
         logger.error(f"فشل إرسال الرسالة إلى القناة: {e}")
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error(f"خطأ غير معالج: {context.error}", exc_info=context.error)
 
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -126,10 +132,11 @@ def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
+    application.add_error_handler(error_handler)
 
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(auto_post_job, interval=1800, first=10)
+        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # كل 3 ساعات بدل 30 دقيقة
         logger.info("تم تفعيل مجدول المهام الدوري.")
 
     logger.info("البوت يبدأ الاستماع الآن...")
