@@ -4,7 +4,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from groq import Groq
+from groq import AsyncGroq
 
 # إعداد السجلات (Logs) لمتابعة أداء البوت على Railway
 logging.basicConfig(
@@ -23,8 +23,8 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     logger.error("خطأ: لم يتم ضبط المتغيرات البيئية TELEGRAM_TOKEN أو GROQ_API_KEY!")
     exit(1)
 
-# تهيئة عميل Groq
-groq_client = Groq(api_key=GROQ_API_KEY)
+# تهيئة عميل Groq غير المتزامن
+groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
 
 # ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
@@ -34,6 +34,9 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot is running inside Railway successfully!")
+
+    def log_message(self, format, *args):
+        pass  # كتم سجلات الطلبات الوهمية
 
 def start_health_server():
     port = int(os.environ.get("PORT", 8080))
@@ -49,9 +52,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "المشروع يعمل كصدقة جارية للأخت «الأندلسية» غفر الله لها ولنا وللمسلمين."
     )
 
-def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = False) -> str:
+async def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = False) -> str:
     try:
-        completion = groq_client.chat.completions.create(
+        completion = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_role},
@@ -72,7 +75,7 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
     if not CHANNEL_CHAT_ID:
         logger.warning("تنبيه: لم يتم ضبط CHANNEL_CHAT_ID!")
         return
-        
+
     logger.info("بدء توليد ونشر الموعظة الدورية في القناة...")
     system_role = "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية المستندة إلى الوحيين والوعي بواقع الأمة."
     prompt = (
@@ -80,8 +83,8 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
         "ركز على عقيدة الولاء والبراء، ثبات الأمة، فضل الجهاد والرباط، "
         "مراغمة الكفار في جزيرة العرب، والدعاء لأبطال وثغور المسلمين في كل بقاع الأرض."
     )
-    content = generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
-    
+    content = await generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
+
     try:
         await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
         logger.info("تم نشر الموعظة الدورية بنجاح.")
@@ -108,8 +111,8 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             "أنت مجيب وموجه شرعي وفكري ذكي جداً، تخاطب الإخوة والأخوات الموحدين في مجموعة نقاش دعوية وثقافية. "
             "أجوبتك مبنية على العقيدة الإسلامية الصحيحة والولاء والبراء ونصرة قضايا المسلمين."
         )
-        ai_reply = generate_ai_content(prompt=user_query, system_role=system_role, is_group_reply=True)
-        
+        ai_reply = await generate_ai_content(prompt=user_query, system_role=system_role, is_group_reply=True)
+
         try:
             await message.reply_text(text=ai_reply)
         except Exception as e:
@@ -130,7 +133,7 @@ def main():
         logger.info("تم تفعيل مجدول المهام الدوري.")
 
     logger.info("البوت يبدأ الاستماع الآن...")
-    application.run_polling(close_loop=False, allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
