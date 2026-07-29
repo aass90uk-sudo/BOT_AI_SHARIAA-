@@ -97,6 +97,31 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(f"خطأ غير معالج: {context.error}", exc_info=context.error)
 
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """يرد على كل منشور جديد في القناة بتعليق ذكي"""
+    post = update.channel_post
+    if not post or not post.text:
+        return
+
+    logger.info(f"منشور جديد في القناة: {post.chat.title}")
+    system_role = (
+        "أنت معلّق إيماني بليغ، تكتب تعليقاً موجزاً ومؤثراً على منشور إسلامي دعوي. "
+        "تعليقك يعمّق المعنى ويزيد الفائدة ويحرّك القلوب. اجعله قصيراً لا يتجاوز سطرين أو ثلاثة."
+    )
+    prompt = f"اكتب تعليقاً إيمانياً موجزاً ومؤثراً على هذا المنشور:\n\n{post.text}"
+
+    ai_comment = await generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
+
+    try:
+        await context.bot.send_message(
+            chat_id=post.chat_id,
+            text=ai_comment,
+            reply_to_message_id=post.message_id
+        )
+        logger.info("تم إرسال التعليق على المنشور بنجاح.")
+    except Exception as e:
+        logger.error(f"فشل إرسال التعليق على منشور القناة: {e}")
+
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or not message.text:
@@ -132,6 +157,7 @@ def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
+    application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POSTS & filters.TEXT, handle_channel_post))
     application.add_error_handler(error_handler)
 
     job_queue = application.job_queue
