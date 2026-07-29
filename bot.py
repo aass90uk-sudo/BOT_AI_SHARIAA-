@@ -98,7 +98,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error(f"خطأ غير معالج: {context.error}", exc_info=context.error)
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """يرد على كل منشور جديد في القناة بتعليق ذكي"""
+    """يرد على كل منشور جديد في القناة مباشرةً (احتياطي)"""
     post = update.channel_post
     if not post or not post.text:
         return
@@ -121,6 +121,30 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info("تم إرسال التعليق على المنشور بنجاح.")
     except Exception as e:
         logger.error(f"فشل إرسال التعليق على منشور القناة: {e}")
+
+async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    يرد في المجموعة المرتبطة عندما يُعاد توجيه منشور القناة إليها تلقائياً.
+    Telegram يرسل is_automatic_forward=True لهذه الرسائل.
+    """
+    message = update.effective_message
+    if not message or not message.text:
+        return
+
+    logger.info(f"منشور محوَّل تلقائياً من القناة إلى المجموعة: {message.chat.title}")
+    system_role = (
+        "أنت معلّق إيماني بليغ، تكتب تعليقاً موجزاً ومؤثراً على منشور إسلامي دعوي. "
+        "تعليقك يعمّق المعنى ويزيد الفائدة ويحرّك القلوب. اجعله قصيراً لا يتجاوز سطرين أو ثلاثة."
+    )
+    prompt = f"اكتب تعليقاً إيمانياً موجزاً ومؤثراً على هذا المنشور:\n\n{message.text}"
+
+    ai_comment = await generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
+
+    try:
+        await message.reply_text(text=ai_comment)
+        logger.info("تم إرسال التعليق في المجموعة المرتبطة بنجاح.")
+    except Exception as e:
+        logger.error(f"فشل إرسال التعليق في المجموعة المرتبطة: {e}")
 
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
@@ -156,7 +180,11 @@ def main():
     # تشغيل البوت
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
+    # منشورات القناة المُعاد توجيهها تلقائياً إلى المجموعة المرتبطة (التعليقات)
+    application.add_handler(MessageHandler(filters.IS_AUTOMATIC_FORWARD & filters.TEXT, handle_discussion_forward))
+    # رسائل المجموعة العادية والخاصة
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.IS_AUTOMATIC_FORWARD, handle_group_message))
+    # منشورات القناة المباشرة (احتياطي)
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POSTS & filters.TEXT, handle_channel_post))
     application.add_error_handler(error_handler)
 
