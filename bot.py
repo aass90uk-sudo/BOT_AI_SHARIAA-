@@ -2,9 +2,10 @@ import os
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from google import genai
+from google.genai import types
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from groq import AsyncGroq, RateLimitError
 
 # إعداد السجلات (Logs) لمتابعة أداء البوت على Railway
 logging.basicConfig(
@@ -15,16 +16,17 @@ logger = logging.getLogger(__name__)
 
 # جلب مفاتيح التشغيل السرية من بيئة النظام (Railway)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CHANNEL_CHAT_ID = os.getenv("CHANNEL_CHAT_ID")
 
 # التحقق من وجود المتغيرات الأساسية
-if not TELEGRAM_TOKEN or not GROQ_API_KEY:
-    logger.error("خطأ: لم يتم ضبط المتغيرات البيئية TELEGRAM_TOKEN أو GROQ_API_KEY!")
+if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
+    logger.error("خطأ: لم يتم ضبط المتغيرات البيئية TELEGRAM_TOKEN أو GEMINI_API_KEY!")
     exit(1)
 
-# تهيئة عميل Groq غير المتزامن
-groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+# تهيئة عميل Gemini؛ المفتاح لا يُحفظ في الكود أو المستودع
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = "gemini-3-flash-preview"
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
 
 # ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
@@ -54,24 +56,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def generate_ai_content(prompt: str, system_role: str, is_group_reply: bool = False) -> str:
     try:
-        completion = await groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": system_role},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=500
+        response = await gemini_client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_role,
+                temperature=0.7,
+                max_output_tokens=8192,
+            ),
         )
-        reply_content = completion.choices[0].message.content
+        reply_content = (response.text or "").strip()
+        if not reply_content:
+            logger.warning("أعاد Gemini استجابة فارغة.")
+            return "لم أتمكن من صياغة رد الآن، يرجى المحاولة مرة أخرى."
+
         if not is_group_reply:
             reply_content += FOOTER_TEXT
         return reply_content
-    except RateLimitError as e:
-        logger.error(f"تجاوز حد الاستخدام اليومي في Groq: {e}")
-        return "عذراً، وصل البوت لحد الاستخدام اليومي. يرجى المحاولة غداً بإذن الله."
     except Exception as e:
-        logger.error(f"خطأ أثناء توليد النص من Groq: {e}")
+        status_code = getattr(e, "status_code", None)
+        if status_code == 429 or "429" in str(e):
+            logger.error("تجاوز حد استخدام Gemini: %s", e)
+            return "عذراً، وصل البوت لحد الاستخدام المتاح. يرجى المحاولة لاحقاً بإذن الله."
+
+        logger.error(f"خطأ أثناء توليد النص من Gemini: {e}")
         return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
 
 async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
