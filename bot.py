@@ -1,13 +1,11 @@
 import os
 import logging
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from google import genai
 from google.genai import types
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات (Logs) لمتابعة أداء البوت على Railway
+# إعداد السجلات (Logs) لمتابعة أداء البوت
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -24,31 +22,13 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
     logger.error("خطأ: لم يتم ضبط المتغيرات البيئية TELEGRAM_TOKEN أو GEMINI_API_KEY!")
     exit(1)
 
-# تهيئة عميل Gemini؛ المفتاح لا يُحفظ في الكود أو المستودع
+# تهيئة عميل Gemini
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = "gemini-3-flash-preview"
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
 
 # متغير عام لتحديد أي منشور سيتم طباعته في الدورة الحالية (للتناوب بين المواضيع)
 post_index = 0
-
-# ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is running inside Railway successfully!")
-
-    def log_message(self, format, *args):
-        pass  # كتم سجلات الطلبات الوهمية
-
-def start_health_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    logger.info(f"تم تشغيل سيرفر الفحص الوهمي على المنفذ: {port}")
-    server.serve_forever()
-# -----------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر البدء للبوت"""
@@ -104,14 +84,14 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
         "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية تجمع بين موضوعين فقط هما:\n"
         "1- فضل الجهاد والرباط وثبات الأمة.\n"
         "2- مراغمة الكفار في جزيرة العرب.\n"
-        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين الفكرتين لتسهيل القراءة والتداول.",
+        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين الفكرتين لتسهيل القراءة والتداول ولا تضف مواضيع أخرى.",
 
         # المنشور الثاني: يجمع الدعاء للثغور مع نصائح للمناصرين
         "اكتب منشوراً توجيهياً ودعوياً بليغاً ومؤثراً جداً يجمع بين موضوعين فقط هما:\n"
         "1- الدعاء لأبطال وثغور المسلمين في كل بقاع الأرض.\n"
         "2- نصائح قيمة وقوية جداً للإخوة المناصرين بعدم كشف الأسرار بداخل المجموعات العامة، "
         "وأن يأخذوا حذرهم الشديد من المتربصين والجواسيس في منصات التواصل الاجتماعي.\n"
-        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين هاتين الفكرتين لتفادي الطول الممل."
+        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين هاتين الفكرتين لتفادي الطول الممل ولا تضف مواضيع أخرى."
     ]
 
     # اختيار الـ prompt الحالي بناءً على العداد الدوري
@@ -160,7 +140,6 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     يرد في المجموعة المرتبطة عندما يُعاد توجيه منشور القناة إليها تلقائياً.
-    Telegram يرسل is_automatic_forward=True لهذه الرسائل.
     """
     message = update.effective_message
     if not message or not message.text:
@@ -209,10 +188,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"فشل إرسال الرد: {e}")
 
 def main():
-    # تشغيل السيرفر الوهمي في مسار منفصل (Thread) حتى لا يعطل البوت
-    threading.Thread(target=start_health_server, daemon=True).start()
-
-    # تشغيل البوت
+    # تشغيل البوت مباشرة بدون سيرفرات إضافية
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     
@@ -228,6 +204,12 @@ def main():
 
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # يتم النشر تلقائياً كل 3 ساعات بالتناوب
+        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # النشر الدوري كل 3 ساعات بالتناوب
         logger.info("تم تفعيل مجدول المهام الدوري.")
 
+    logger.info("البوت يبدأ الاستماع الآن...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    main()
+    
