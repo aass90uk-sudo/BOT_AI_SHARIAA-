@@ -79,8 +79,8 @@ async def generate_ai_content(prompt: str, system_role: str, is_group_reply: boo
         return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
 
 async def send_second_post_job(context: ContextTypes.DEFAULT_TYPE):
-    """وظيفة فرعية تُستدعى تلقائياً لنشر المنشور الثاني بعد 5 دقائق"""
-    logger.info("حان الآن موعد نشر المنشور الدوري الثاني (بعد انتهاء الـ 5 دقائق)...")
+    """وظيفة فرعية تُستدعى تلقائياً لنشر المنشور الثاني بعد 15 دقيقة"""
+    logger.info("حان الآن موعد نشر المنشور الدوري الثاني (بعد انتهاء الـ 15 دقيقة)...")
     system_role = (
         "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية "
         "المستندة إلى الوحيين والوعي بواقع الأمة. صغ المنشور بشكل منسق وجذاب وبثنايا واضحة وبأسطر متباعدة."
@@ -109,11 +109,11 @@ async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
     content_1 = await generate_ai_content(prompt=PROMPT_1, system_role=system_role, is_group_reply=False)
     try:
         await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content_1)
-        logger.info("تم نشر المنشور الدوري الأول بنجاح. تم جدولة المنشور الثاني ليُنشر بعد 5 دقائق.")
+        logger.info("تم نشر المنشور الدوري الأول بنجاح. تم جدولة المنشور الثاني ليُنشر بعد 15 دقيقة.")
         
-        # 2. جدولة المنشور الثاني (الدعاء للثغور + نصائح المناصرين) ليتم إرساله بعد 5 دقائق (300 ثانية) بالضبط
+        # 2. جدولة المنشور الثاني ليتم إرساله بعد ربع ساعة (900 ثانية) بالضبط
         if context.job_queue:
-            context.job_queue.run_once(send_second_post_job, when=300)
+            context.job_queue.run_once(send_second_post_job, when=900)
             
     except Exception as e:
         logger.error(f"فشل إرسال المنشور الأول إلى القناة: {e}")
@@ -195,7 +195,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"فشل إرسال الرد: {e}")
 
 def main():
-    # تشغيل البوت مباشرة بدون سيرفرات إضافية وبنيتك الأصلية
+    # تشغيل البوت مباشرة ببنيتك الأصلية الصافية
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     
@@ -220,4 +220,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
+        
