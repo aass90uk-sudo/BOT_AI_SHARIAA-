@@ -29,6 +29,9 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = "gemini-3-flash-preview"
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
 
+# متغير عام لتحديد أي منشور سيتم طباعته في الدورة الحالية (للتناوب بين المواضيع)
+post_index = 0
+
 # ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -83,22 +86,46 @@ async def generate_ai_content(prompt: str, system_role: str, is_group_reply: boo
         return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
 
 async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
+    global post_index
     if not CHANNEL_CHAT_ID:
         logger.warning("تنبيه: لم يتم ضبط CHANNEL_CHAT_ID!")
         return
 
-    logger.info("بدء توليد ونشر الموعظة الدورية في القناة...")
-    system_role = "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية المستندة إلى الوحيين والوعي بواقع الأمة."
-    prompt = (
-        "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية. "
-        "ركز على عقيدة الولاء والبراء، ثبات الأمة، فضل الجهاد والرباط، "
-        "مراغمة الكفار في جزيرة العرب، والدعاء لأبطال وثغور المسلمين في كل بقاع الأرض ،مع وضع نصائح قيمة للإخوة المناصرين وعدم كشف الاسرار بداخل المجموعات العامة وأنصحهم بأن يأخدو حِذرهم من المتربصين في منصات التواصل اجعل كل موظوعين بمنشور واحد لتفادي طول المنشور ليسهل قراءته مثلاً فضل الجهاد والرباط منشور لحالة ومراغمة الكفار في جزيرة العرب والدعاء لأبطال وثغور المسلمين لحالة اجعل منشور نصائح قمة للإخوة المناصرين في منشور لحالة تماماً."
+    logger.info("بدء توليد ونشر الموعظة الدورية المدمجة في القناة...")
+    
+    system_role = (
+        "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية "
+        "المستندة إلى الوحيين والوعي بواقع الأمة. صغ المنشور بشكل منسق وجذاب وبثنايا واضحة وبأسطر متباعدة."
     )
-    content = await generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
+
+    # مصفوفة تحتوي على الأزواج المحددة للمواضيع لضمان عدم خلطها وتفادي الطول الممل
+    prompts_pool = [
+        # المنشور الأول: يجمع فضل الجهاد والرباط مع مراغمة الكفار
+        "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية تجمع بين موضوعين فقط هما:\n"
+        "1- فضل الجهاد والرباط وثبات الأمة.\n"
+        "2- مراغمة الكفار في جزيرة العرب.\n"
+        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين الفكرتين لتسهيل القراءة والتداول.",
+
+        # المنشور الثاني: يجمع الدعاء للثغور مع نصائح للمناصرين
+        "اكتب منشوراً توجيهياً ودعوياً بليغاً ومؤثراً جداً يجمع بين موضوعين فقط هما:\n"
+        "1- الدعاء لأبطال وثغور المسلمين في كل بقاع الأرض.\n"
+        "2- نصائح قيمة وقوية جداً للإخوة المناصرين بعدم كشف الأسرار بداخل المجموعات العامة، "
+        "وأن يأخذوا حذرهم الشديد من المتربصين والجواسيس في منصات التواصل الاجتماعي.\n"
+        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين هاتين الفكرتين لتفادي الطول الممل."
+    ]
+
+    # اختيار الـ prompt الحالي بناءً على العداد الدوري
+    current_prompt = prompts_pool[post_index % len(prompts_pool)]
+    
+    # توليد المحتوى عبر الذكاء الاصطناعي
+    content = await generate_ai_content(prompt=current_prompt, system_role=system_role, is_group_reply=False)
 
     try:
         await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
-        logger.info("تم نشر الموعظة الدورية بنجاح.")
+        logger.info(f"تم نشر الموعظة الدورية بنجاح (المجموعة رقم {post_index % len(prompts_pool) + 1}).")
+        
+        # زيادة العداد للانتقال للموضوعين التاليين في الدورة القادمة تلقائياً
+        post_index += 1
     except Exception as e:
         logger.error(f"فشل إرسال الرسالة إلى القناة: {e}")
 
@@ -188,21 +215,19 @@ def main():
     # تشغيل البوت
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
+    
     # منشورات القناة المُعاد توجيهها تلقائياً إلى المجموعة المرتبطة (التعليقات)
     application.add_handler(MessageHandler(filters.IS_AUTOMATIC_FORWARD & filters.TEXT, handle_discussion_forward))
+    
     # رسائل المجموعة العادية والخاصة
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.IS_AUTOMATIC_FORWARD, handle_group_message))
+    
     # منشورات القناة المباشرة (احتياطي)
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POSTS & filters.TEXT, handle_channel_post))
     application.add_error_handler(error_handler)
 
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # كل 3 ساعات بدل 30 دقيقة
+        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # يتم النشر تلقائياً كل 3 ساعات بالتناوب
         logger.info("تم تفعيل مجدول المهام الدوري.")
 
-    logger.info("البوت يبدأ الاستماع الآن...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == '__main__':
-    main()
