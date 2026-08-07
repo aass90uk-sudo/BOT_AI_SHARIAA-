@@ -27,8 +27,21 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = "gemini-3-flash-preview"
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
 
-# متغير عام لتحديد أي منشور سيتم طباعته في الدورة الحالية (للتناوب بين المواضيع)
-post_index = 0
+# نصوص الـ Prompts الثابتة للمواضيع
+PROMPT_1 = (
+    "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية تجمع بين موضوعين فقط هما:\n"
+    "1- فضل الجهاد والرباط وثبات الأمة.\n"
+    "2- مراغمة الكفار في جزيرة العرب.\n"
+    "اجعل المنشور متوسط الطول ومقسماً بوضوح بين الفكرتين لتسهيل القراءة والتداول ولا تضف مواضيع أخرى."
+)
+
+PROMPT_2 = (
+    "اكتب منشوراً توجيهياً ودعوياً بليغاً ومؤثراً جداً يجمع بين موضوعين فقط هما:\n"
+    "1- الدعاء لأبطال وثغور المسلمين في كل بقاع الأرض.\n"
+    "2- نصائح قيمة وقوية جداً للإخوة المناصرين بعدم كشف الأسرار بداخل المجموعات العامة، "
+    "وأن يأخذوا حذرهم الشديد من المتربصين والجواسيس في منصات التواصل الاجتماعي.\n"
+    "اجعل المنشور متوسط الطول ومقسماً بوضوح بين هاتين الفكرتين لتفادي الطول الممل ولا تضف مواضيع أخرى."
+)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر البدء للبوت"""
@@ -65,49 +78,45 @@ async def generate_ai_content(prompt: str, system_role: str, is_group_reply: boo
         logger.error(f"خطأ أثناء توليد النص من Gemini: {e}")
         return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
 
+async def send_second_post_job(context: ContextTypes.DEFAULT_TYPE):
+    """وظيفة فرعية تُستدعى تلقائياً لنشر المنشور الثاني بعد 5 دقائق"""
+    logger.info("حان الآن موعد نشر المنشور الدوري الثاني (بعد انتهاء الـ 5 دقائق)...")
+    system_role = (
+        "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية "
+        "المستندة إلى الوحيين والوعي بواقع الأمة. صغ المنشور بشكل منسق وجذاب وبثنايا واضحة وبأسطر متباعدة."
+    )
+    content = await generate_ai_content(prompt=PROMPT_2, system_role=system_role, is_group_reply=False)
+    try:
+        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
+        logger.info("تم نشر المنشور الدوري الثاني بنجاح. البوت الآن في فترة استراحة الـ 3 ساعات.")
+    except Exception as e:
+        logger.error(f"فشل إرسال المنشور الثاني إلى القناة: {e}")
+
 async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
-    global post_index
+    """الوظيفة الرئيسية التي تعمل كل 3 ساعات لنشر المنشور الأول وجدولة الثاني"""
     if not CHANNEL_CHAT_ID:
         logger.warning("تنبيه: لم يتم ضبط CHANNEL_CHAT_ID!")
         return
 
-    logger.info("بدء توليد ونشر الموعظة الدورية المدمجة في القناة...")
+    logger.info("بدء الدورة الدورية: توليد ونشر المنشور الأول في القناة...")
     
     system_role = (
         "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية "
         "المستندة إلى الوحيين والوعي بواقع الأمة. صغ المنشور بشكل منسق وجذاب وبثنايا واضحة وبأسطر متباعدة."
     )
-
-    # مصفوفة تحتوي على الأزواج المحددة للمواضيع لضمان عدم خلطها وتفادي الطول الممل
-    prompts_pool = [
-        # المنشور الأول: يجمع فضل الجهاد والرباط مع مراغمة الكفار
-        "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية تجمع بين موضوعين فقط هما:\n"
-        "1- فضل الجهاد والرباط وثبات الأمة.\n"
-        "2- مراغمة الكفار في جزيرة العرب.\n"
-        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين الفكرتين لتسهيل القراءة والتداول ولا تضف مواضيع أخرى.",
-
-        # المنشور الثاني: يجمع الدعاء للثغور مع نصائح للمناصرين
-        "اكتب منشوراً توجيهياً ودعوياً بليغاً ومؤثراً جداً يجمع بين موضوعين فقط هما:\n"
-        "1- الدعاء لأبطال وثغور المسلمين في كل بقاع الأرض.\n"
-        "2- نصائح قيمة وقوية جداً للإخوة المناصرين بعدم كشف الأسرار بداخل المجموعات العامة، "
-        "وأن يأخذوا حذرهم الشديد من المتربصين والجواسيس في منصات التواصل الاجتماعي.\n"
-        "اجعل المنشور متوسط الطول ومقسماً بوضوح بين هاتين الفكرتين لتفادي الطول الممل ولا تضف مواضيع أخرى."
-    ]
-
-    # اختيار الـ prompt الحالي بناءً على العداد الدوري
-    current_prompt = prompts_pool[post_index % len(prompts_pool)]
     
-    # توليد المحتوى عبر الذكاء الاصطناعي
-    content = await generate_ai_content(prompt=current_prompt, system_role=system_role, is_group_reply=False)
-
+    # 1. توليد ونشر المنشور الأول فوراً (فضل الجهاد والرباط + مراغمة الكفار)
+    content_1 = await generate_ai_content(prompt=PROMPT_1, system_role=system_role, is_group_reply=False)
     try:
-        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
-        logger.info(f"تم نشر الموعظة الدورية بنجاح (المجموعة رقم {post_index % len(prompts_pool) + 1}).")
+        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content_1)
+        logger.info("تم نشر المنشور الدوري الأول بنجاح. تم جدولة المنشور الثاني ليُنشر بعد 5 دقائق.")
         
-        # زيادة العداد للانتقال للموضوعين التاليين في الدورة القادمة تلقائياً
-        post_index += 1
+        # 2. جدولة المنشور الثاني (الدعاء للثغور + نصائح المناصرين) ليتم إرساله بعد 5 دقائق (300 ثانية) بالضبط
+        if context.job_queue:
+            context.job_queue.run_once(send_second_post_job, when=300)
+            
     except Exception as e:
-        logger.error(f"فشل إرسال الرسالة إلى القناة: {e}")
+        logger.error(f"فشل إرسال المنشور الأول إلى القناة: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(f"خطأ غير معالج: {context.error}", exc_info=context.error)
@@ -138,9 +147,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"فشل إرسال التعليق على منشور القناة: {e}")
 
 async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    يرد في المجموعة المرتبطة عندما يُعاد توجيه منشور القناة إليها تلقائياً.
-    """
+    """يرد في المجموعة المرتبطة عندما يُعاد توجيه منشور القناة إليها تلقائياً."""
     message = update.effective_message
     if not message or not message.text:
         return
@@ -188,7 +195,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"فشل إرسال الرد: {e}")
 
 def main():
-    # تشغيل البوت مباشرة بدون سيرفرات إضافية
+    # تشغيل البوت مباشرة بدون سيرفرات إضافية وبنيتك الأصلية
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     
@@ -204,8 +211,9 @@ def main():
 
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # النشر الدوري كل 3 ساعات بالتناوب
-        logger.info("تم تفعيل مجدول المهام الدوري.")
+        # الوظيفة الرئيسية تعمل بانتظام كل 3 ساعات (10800 ثانية)
+        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  
+        logger.info("تم تفعيل مجدول المهام الدوري بنجاح.")
 
     logger.info("البوت يبدأ الاستماع الآن...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
