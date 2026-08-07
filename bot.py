@@ -1,11 +1,13 @@
 import os
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from google import genai
 from google.genai import types
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات (Logs) لمتابعة أداء البوت
+# إعداد السجلات (Logs) لمتابعة أداء البوت على Railway
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -22,26 +24,28 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
     logger.error("خطأ: لم يتم ضبط المتغيرات البيئية TELEGRAM_TOKEN أو GEMINI_API_KEY!")
     exit(1)
 
-# تهيئة عميل Gemini
+# تهيئة عميل Gemini؛ المفتاح لا يُحفظ في الكود أو المستودع
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = "gemini-3-flash-preview"
 FOOTER_TEXT = "\n\n🖤 صدقة جارية للأخت «الأندلسية» غفر الله لها 🖤"
 
-# نصوص الـ Prompts الثابتة للمواضيع
-PROMPT_1 = (
-    "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية تجمع بين موضوعين فقط هما:\n"
-    "1- فضل الجهاد والرباط وثبات الأمة.\n"
-    "2- مراغمة الكفار في جزيرة العرب.\n"
-    "اجعل المنشور متوسط الطول ومقسماً بوضوح بين الفكرتين لتسهيل القراءة والتداول ولا تضف مواضيع أخرى."
-)
+# ----------------- سيرفر وهمي لإرضاء منصة Railway -----------------
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running inside Railway successfully!")
 
-PROMPT_2 = (
-    "اكتب منشوراً توجيهياً ودعوياً بليغاً ومؤثراً جداً يجمع بين موضوعين فقط هما:\n"
-    "1- الدعاء لأبطال وثغور المسلمين في كل بقاع الأرض.\n"
-    "2- نصائح قيمة وقوية جداً للإخوة المناصرين بعدم كشف الأسرار بداخل المجموعات العامة، "
-    "وأن يأخذوا حذرهم الشديد من المتربصين والجواسيس في منصات التواصل الاجتماعي.\n"
-    "اجعل المنشور متوسط الطول ومقسماً بوضوح بين هاتين الفكرتين لتفادي الطول الممل ولا تضف مواضيع أخرى."
-)
+    def log_message(self, format, *args):
+        pass  # كتم سجلات الطلبات الوهمية
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"تم تشغيل سيرفر الفحص الوهمي على المنفذ: {port}")
+    server.serve_forever()
+# -----------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر البدء للبوت"""
@@ -78,45 +82,25 @@ async def generate_ai_content(prompt: str, system_role: str, is_group_reply: boo
         logger.error(f"خطأ أثناء توليد النص من Gemini: {e}")
         return "حدث خطأ أثناء معالجة الطلب، نسأل الله التيسير والسداد."
 
-async def send_second_post_job(context: ContextTypes.DEFAULT_TYPE):
-    """وظيفة فرعية تُستدعى تلقائياً لنشر المنشور الثاني بعد 15 دقيقة"""
-    logger.info("حان الآن موعد نشر المنشور الدوري الثاني (بعد انتهاء الـ 15 دقيقة)...")
-    system_role = (
-        "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية "
-        "المستندة إلى الوحيين والوعي بواقع الأمة. صغ المنشور بشكل منسق وجذاب وبثنايا واضحة وبأسطر متباعدة."
-    )
-    content = await generate_ai_content(prompt=PROMPT_2, system_role=system_role, is_group_reply=False)
-    try:
-        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
-        logger.info("تم نشر المنشور الدوري الثاني بنجاح. البوت الآن في فترة استراحة الـ 3 ساعات.")
-    except Exception as e:
-        logger.error(f"فشل إرسال المنشور الثاني إلى القناة: {e}")
-
 async def auto_post_job(context: ContextTypes.DEFAULT_TYPE):
-    """الوظيفة الرئيسية التي تعمل كل 3 ساعات لنشر المنشور الأول وجدولة الثاني"""
     if not CHANNEL_CHAT_ID:
         logger.warning("تنبيه: لم يتم ضبط CHANNEL_CHAT_ID!")
         return
 
-    logger.info("بدء الدورة الدورية: توليد ونشر المنشور الأول في القناة...")
-    
-    system_role = (
-        "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية "
-        "المستندة إلى الوحيين والوعي بواقع الأمة. صغ المنشور بشكل منسق وجذاب وبثنايا واضحة وبأسطر متباعدة."
+    logger.info("بدء توليد ونشر الموعظة الدورية في القناة...")
+    system_role = "أنت خطيب وموجه إيماني بليغ، تتقن الكتابة الحماسية المؤثرة والدعوية المستندة إلى الوحيين والوعي بواقع الأمة."
+    prompt = (
+        "اكتب موعظة إيمانية حماسية بليغة ومؤثرة جداً للأمة الإسلامية اجعلها أربعة أسطر. "
+        "ركز على عقيدة الولاء والبراء، ثبات الأمة، فضل الجهاد والرباط اجعلها أربعة اسطر، "
+        "مراغمة الكفار في جزيرة العرب، والدعاء لأبطال وثغور المسلمين في كل بقاع الأرض ،مع وضع نصائح قيمة للإخوة المناصرين وعدم كشف الاسرار بداخل المجموعات العامة وأنصحهم بأن يأخدو حِذرهم من المتربصين في منصات التواصل اجعلها أربعة اسطر."
     )
-    
-    # 1. توليد ونشر المنشور الأول فوراً (فضل الجهاد والرباط + مراغمة الكفار)
-    content_1 = await generate_ai_content(prompt=PROMPT_1, system_role=system_role, is_group_reply=False)
+    content = await generate_ai_content(prompt=prompt, system_role=system_role, is_group_reply=False)
+
     try:
-        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content_1)
-        logger.info("تم نشر المنشور الدوري الأول بنجاح. تم جدولة المنشور الثاني ليُنشر بعد 15 دقيقة.")
-        
-        # 2. جدولة المنشور الثاني ليتم إرساله بعد ربع ساعة (900 ثانية) بالضبط
-        if context.job_queue:
-            context.job_queue.run_once(send_second_post_job, when=900)
-            
+        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=content)
+        logger.info("تم نشر الموعظة الدورية بنجاح.")
     except Exception as e:
-        logger.error(f"فشل إرسال المنشور الأول إلى القناة: {e}")
+        logger.error(f"فشل إرسال الرسالة إلى القناة: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(f"خطأ غير معالج: {context.error}", exc_info=context.error)
@@ -147,7 +131,10 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"فشل إرسال التعليق على منشور القناة: {e}")
 
 async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """يرد في المجموعة المرتبطة عندما يُعاد توجيه منشور القناة إليها تلقائياً."""
+    """
+    يرد في المجموعة المرتبطة عندما يُعاد توجيه منشور القناة إليها تلقائياً.
+    Telegram يرسل is_automatic_forward=True لهذه الرسائل.
+    """
     message = update.effective_message
     if not message or not message.text:
         return
@@ -195,29 +182,27 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"فشل إرسال الرد: {e}")
 
 def main():
-    # تشغيل البوت مباشرة ببنيتك الأصلية الصافية
+    # تشغيل السيرفر الوهمي في مسار منفصل (Thread) حتى لا يعطل البوت
+    threading.Thread(target=start_health_server, daemon=True).start()
+
+    # تشغيل البوت
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    
     # منشورات القناة المُعاد توجيهها تلقائياً إلى المجموعة المرتبطة (التعليقات)
     application.add_handler(MessageHandler(filters.IS_AUTOMATIC_FORWARD & filters.TEXT, handle_discussion_forward))
-    
     # رسائل المجموعة العادية والخاصة
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.IS_AUTOMATIC_FORWARD, handle_group_message))
-    
     # منشورات القناة المباشرة (احتياطي)
     application.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POSTS & filters.TEXT, handle_channel_post))
     application.add_error_handler(error_handler)
 
     job_queue = application.job_queue
     if job_queue:
-        # الوظيفة الرئيسية تعمل بانتظام كل 3 ساعات (10800 ثانية)
-        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  
-        logger.info("تم تفعيل مجدول المهام الدوري بنجاح.")
+        job_queue.run_repeating(auto_post_job, interval=10800, first=60)  # كل 3 ساعات بدل 30 دقيقة
+        logger.info("تم تفعيل مجدول المهام الدوري.")
 
     logger.info("البوت يبدأ الاستماع الآن...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
-        
